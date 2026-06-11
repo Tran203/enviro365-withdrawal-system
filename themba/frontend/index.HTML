@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enviro365 Investments</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            color: #333;
+        }
+
+        header {
+            background: #003366;
+            color: white;
+            padding: 16px 24px;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 16px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: #003366;
+            border-bottom: 2px solid #003366;
+            padding-bottom: 8px;
+        }
+
+        select, input {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        button {
+            background: #003366;
+            color: white;
+            border: none;
+            padding: 9px 18px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 8px;
+            margin-top: 4px;
+        }
+
+        button:hover { background: #004999; }
+
+        button.secondary {
+            background: #555;
+        }
+
+        button.secondary:hover { background: #333; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th {
+            background: #003366;
+            color: white;
+            padding: 10px;
+            text-align: left;
+        }
+
+        td { padding: 9px 10px; border-bottom: 1px solid #eee; }
+
+        tr:hover td { background: #f9f9f9; }
+
+        .badge {
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge.APPROVED { background: #d4edda; color: #155724; }
+        .badge.PENDING  { background: #fff3cd; color: #856404; }
+        .badge.REJECTED { background: #f8d7da; color: #721c24; }
+
+        .message {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .message.success { background: #d4edda; color: #155724; }
+        .message.error   { background: #f8d7da; color: #721c24; }
+
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .stat { background: #f0f4ff; padding: 14px; border-radius: 6px; }
+        .stat .label { font-size: 12px; color: #666; }
+        .stat .value { font-size: 20px; font-weight: bold; color: #003366; margin-top: 4px; }
+
+        #no-withdrawals { color: #888; font-size: 14px; display: none; }
+    </style>
+</head>
+<body>
+
+<header>Enviro365 Investments</header>
+
+<div class="container">
+
+    <!-- Investor Selector -->
+    <div class="card">
+        <h2>Select Investor</h2>
+        <select id="investorSelect" onchange="loadInvestor()">
+            <option value="">-- Select an investor --</option>
+        </select>
+    </div>
+
+    <!-- Portfolio Dashboard -->
+    <div class="card" id="portfolioCard" style="display:none">
+        <h2>Portfolio Dashboard</h2>
+        <div class="grid" id="portfolioGrid"></div>
+    </div>
+
+    <!-- Withdrawal Form -->
+    <div class="card" id="withdrawalCard" style="display:none">
+        <h2>Submit Withdrawal</h2>
+        <select id="productSelect">
+            <option value="">-- Select a product --</option>
+        </select>
+        <input type="number" id="withdrawalAmount" placeholder="Enter amount (R)" min="1" />
+        <button onclick="submitWithdrawal()">Submit Withdrawal</button>
+        <div class="message" id="withdrawalMessage"></div>
+    </div>
+
+    <!-- Withdrawal History -->
+    <div class="card" id="historyCard" style="display:none">
+        <h2>Withdrawal History</h2>
+        <button class="secondary" onclick="exportCSV()">Download CSV</button>
+        <br/><br/>
+        <p id="no-withdrawals">No withdrawals found.</p>
+        <table id="historyTable" style="display:none">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Product ID</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody id="historyBody"></tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    const API = 'http://localhost:8080/api';
+    let currentInvestorId = null;
+
+    // Load investors into dropdown on page load
+    async function loadInvestors() {
+        const res = await fetch(`${API}/investors`);
+        const investors = await res.json();
+        const select = document.getElementById('investorSelect');
+        investors.forEach(inv => {
+            const opt = document.createElement('option');
+            opt.value = inv.id;
+            opt.textContent = inv.name;
+            select.appendChild(opt);
+        });
+    }
+
+    // Load investor portfolio and history when selected
+    async function loadInvestor() {
+        const id = document.getElementById('investorSelect').value;
+        if (!id) return;
+        currentInvestorId = id;
+
+        await loadPortfolio(id);
+        await loadHistory(id);
+
+        document.getElementById('portfolioCard').style.display = 'block';
+        document.getElementById('withdrawalCard').style.display = 'block';
+        document.getElementById('historyCard').style.display = 'block';
+    }
+
+    // Load portfolio products
+    async function loadPortfolio(investorId) {
+        const [productsRes, investorRes] = await Promise.all([
+            fetch(`${API}/products/investor/${investorId}`),
+            fetch(`${API}/investors/${investorId}`)
+        ]);
+
+        const products = await productsRes.json();
+        const investor = await investorRes.json();
+
+        // Calculate age
+        const dob = new Date(investor.dateOfBirth);
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        const monthDiff = today.getMonth() - dob.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--;
+
+        const grid = document.getElementById('portfolioGrid');
+        const productSelect = document.getElementById('productSelect');
+
+        grid.innerHTML = '';
+        productSelect.innerHTML = '<option value="">-- Select a product --</option>';
+
+        // Investor info bar
+        grid.innerHTML = `
+            <div class="stat" style="grid-column: span 2; background:#e8f0fe">
+                <div class="label">Investor</div>
+                <div class="value" style="font-size:16px">${investor.name}</div>
+                <div class="label">Age: ${age} &nbsp;|&nbsp; ${investor.email}</div>
+            </div>`;
+
+        products.forEach(p => {
+            grid.innerHTML += `
+                <div class="stat">
+                    <div class="label">${p.productType}</div>
+                    <div class="value">R ${p.balance.toLocaleString()}</div>
+                    <div class="label">${p.productName}</div>
+                </div>`;
+
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.productName} (R ${p.balance.toLocaleString()})`;
+            productSelect.appendChild(opt);
+        });
+    }
+
+    // Submit withdrawal
+    async function submitWithdrawal() {
+        const productId = document.getElementById('productSelect').value;
+        const amount = document.getElementById('withdrawalAmount').value;
+        const msg = document.getElementById('withdrawalMessage');
+
+        if (!productId || !amount) {
+            showMessage(msg, 'Please select a product and enter an amount.', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API}/withdrawals`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ productId: parseInt(productId), amount: parseFloat(amount) })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                showMessage(msg, `Withdrawal of R ${amount} approved successfully!`, 'success');
+                document.getElementById('withdrawalAmount').value = '';
+                await loadPortfolio(currentInvestorId);
+                await loadHistory(currentInvestorId);
+            } else {
+                showMessage(msg, data.message || 'Withdrawal failed.', 'error');
+            }
+        } catch (err) {
+            showMessage(msg, 'Could not connect to server.', 'error');
+        }
+    }
+
+    // Load withdrawal history
+    async function loadHistory(investorId) {
+        const res = await fetch(`${API}/withdrawals/investor/${investorId}`);
+        const withdrawals = await res.json();
+
+        const tbody = document.getElementById('historyBody');
+        const table = document.getElementById('historyTable');
+        const noData = document.getElementById('no-withdrawals');
+
+        tbody.innerHTML = '';
+
+        if (withdrawals.length === 0) {
+            table.style.display = 'none';
+            noData.style.display = 'block';
+            return;
+        }
+
+        noData.style.display = 'none';
+        table.style.display = 'table';
+
+        withdrawals.forEach(w => {
+            const date = w.createdAt ? new Date(w.createdAt).toLocaleDateString() : 'N/A';
+            tbody.innerHTML += `
+                <tr>
+                    <td>${w.id}</td>
+                    <td>${w.productId}</td>
+                    <td>R ${w.amount.toLocaleString()}</td>
+                    <td><span class="badge ${w.status}">${w.status}</span></td>
+                    <td>${date}</td>
+                </tr>`;
+        });
+    }
+
+    // Export CSV
+    function exportCSV() {
+        if (!currentInvestorId) return;
+        window.location.href = `${API}/withdrawals/export/${currentInvestorId}`;
+    }
+
+    // Show message helper
+    function showMessage(el, text, type) {
+        el.textContent = text;
+        el.className = `message ${type}`;
+        el.style.display = 'block';
+        setTimeout(() => el.style.display = 'none', 5000);
+    }
+
+    
+    loadInvestors();
+</script>
+
+</body>
+</html>
